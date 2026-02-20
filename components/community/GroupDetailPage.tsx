@@ -32,8 +32,13 @@ import {
     Check,
     Image as ImageIcon,
     Loader2,
+    MessageSquare,
+    Calendar,
+    Shield,
+    History
 } from "lucide-react";
 import { GroupBottomNav } from "./GroupBottomNav"; // Assuming this might need adjustment or removal if it links to removed tabs
+import { GroupGovernance } from "./GroupGovernance";
 import {
     Dialog,
     DialogContent,
@@ -68,7 +73,11 @@ const CATEGORY_EMOJI: Record<string, string> = {
 
 const TAB_CONFIG = [
     { id: "overview", label: "Overview", icon: Eye },
+    { id: "town-hall", label: "Town Hall", icon: MessageSquare },
+    { id: "events", label: "Events", icon: Calendar },
     { id: "members", label: "Members", icon: Users },
+    { id: "governance", label: "Governance", icon: Shield },
+    { id: "logs", label: "Logs", icon: History },
 ] as const;
 
 type TabId = (typeof TAB_CONFIG)[number]["id"];
@@ -174,6 +183,8 @@ export default function GroupDetailPageContent({ groupId }: GroupDetailPageConte
     }, [isAuthLoading, isAuthenticated, router]);
 
     // ── UI State ──
+    const [jumpToChannel, setJumpToChannel] = useState<Id<"channels"> | null>(null);
+    const [jumpToMessage, setJumpToMessage] = useState<Id<"messages"> | null>(null);
     const [isJoining, setIsJoining] = useState(false);
     const [joinMessage, setJoinMessage] = useState("");
     const [showJoinDialog, setShowJoinDialog] = useState(false);
@@ -200,6 +211,12 @@ export default function GroupDetailPageContent({ groupId }: GroupDetailPageConte
         },
         [searchParams, router]
     );
+
+    const handleJumpToMessage = useCallback((channelId: Id<"channels">, messageId: Id<"messages">) => {
+        setJumpToChannel(channelId);
+        setJumpToMessage(messageId);
+        handleTabChange("town-hall");
+    }, [handleTabChange]);
 
     // ── Data — conditional fetching for performance ──
     const group = useQuery(api.groups.getGroup, isAuthenticated ? { groupId } : "skip");
@@ -800,6 +817,38 @@ export default function GroupDetailPageContent({ groupId }: GroupDetailPageConte
                                 </div>
                             )}
                         </div>
+                    </div>
+                )}
+
+                {/* TOWN HALL PLACEHOLDER */}
+                {activeTab === "town-hall" && (
+                    <div className="flex flex-col items-center justify-center py-24 px-4 text-center space-y-4 bg-card border border-border rounded-md shadow-sm">
+                        <MessageSquare className="w-12 h-12 text-muted-foreground/50" />
+                        <h2 className="text-xl font-bold font-mono uppercase tracking-tight text-foreground">Town Hall</h2>
+                        <p className="text-muted-foreground text-sm max-w-md font-mono">To be built.</p>
+                    </div>
+                )}
+
+                {/* EVENTS PLACEHOLDER */}
+                {activeTab === "events" && (
+                    <div className="flex flex-col items-center justify-center py-24 px-4 text-center space-y-4 bg-card border border-border rounded-md shadow-sm">
+                        <Calendar className="w-12 h-12 text-muted-foreground/50" />
+                        <h2 className="text-xl font-bold font-mono uppercase tracking-tight text-foreground">Events</h2>
+                        <p className="text-muted-foreground text-sm max-w-md font-mono">To be built.</p>
+                    </div>
+                )}
+
+                {/* GOVERNANCE */}
+                {activeTab === "governance" && (
+                    <GroupGovernance groupId={groupId} onJumpToMessage={handleJumpToMessage} />
+                )}
+
+                {/* LOGS PLACEHOLDER */}
+                {activeTab === "logs" && (
+                    <div className="flex flex-col items-center justify-center py-24 px-4 text-center space-y-4 bg-card border border-border rounded-md shadow-sm">
+                        <History className="w-12 h-12 text-muted-foreground/50" />
+                        <h2 className="text-xl font-bold font-mono uppercase tracking-tight text-foreground">Logs</h2>
+                        <p className="text-muted-foreground text-sm max-w-md font-mono">To be built.</p>
                     </div>
                 )}
             </div>
