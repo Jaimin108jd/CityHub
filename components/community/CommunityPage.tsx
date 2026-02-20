@@ -17,14 +17,15 @@ import {
     Users,
     Compass,
     FolderOpen,
-    TrendingUp,
     Sparkles,
     ArrowRight,
     MapPin,
-    Calendar,
     Map as MapIcon,
     Loader2,
     Wand2,
+    Globe,
+    Activity,
+    Zap,
 } from "lucide-react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { useElementSize } from "@/hooks/use-element-size";
@@ -36,12 +37,12 @@ const CreateGroupDialog = dynamic(() => import("./CreateGroupDialog").then(mod =
 const CATEGORIES = [
     { name: "All", icon: Sparkles },
     { name: "Neighborhood", icon: Users },
-    { name: "Environment", icon: TrendingUp },
+    { name: "Environment", icon: Zap },
     { name: "Education", icon: Compass },
     { name: "Arts & Culture", icon: Sparkles },
     { name: "Sports & Recreation", icon: Users },
     { name: "Safety & Watch", icon: Shield },
-    { name: "Local Business", icon: TrendingUp },
+    { name: "Local Business", icon: Zap },
     { name: "Tech & Innovation", icon: Compass },
     { name: "Health & Wellness", icon: Users },
     { name: "Other", icon: Sparkles },
@@ -92,6 +93,11 @@ export default function CommunityPageContent() {
         }
     }, []);
 
+    const myProfile = useQuery(
+        api.users.getMyProfile,
+        isAuthenticated ? {} : "skip"
+    );
+
     const publicGroups = useQuery(
         api.groups.listPublicGroups,
         isAuthenticated
@@ -118,7 +124,7 @@ export default function CommunityPageContent() {
         if (!deferredSearchQuery.trim()) return publicGroups;
         const q = deferredSearchQuery.toLowerCase();
         return publicGroups.filter(
-            (g: any) =>
+            (g) =>
                 g.name.toLowerCase().includes(q) ||
                 g.description.toLowerCase().includes(q) ||
                 g.tags.some((t: string) => t.includes(q)) ||
@@ -194,13 +200,15 @@ export default function CommunityPageContent() {
         );
     }, [myGroups, deferredSearchQuery]);
 
-    // Featured groups (groups with most members)
-    const featuredGroups = useMemo(() => {
-        if (!publicGroups) return [];
-        return [...publicGroups]
+    // Nearby groups — same city as the current user
+    const nearbyGroups = useMemo(() => {
+        if (!publicGroups || !myProfile?.city?.name) return [];
+        const userCity = myProfile.city.name.toLowerCase();
+        return publicGroups
+            .filter((g) => g.city.name.toLowerCase() === userCity)
             .sort((a, b) => b.memberCount - a.memberCount)
-            .slice(0, 3);
-    }, [publicGroups]);
+            .slice(0, 6);
+    }, [publicGroups, myProfile]);
 
     const isLoading = activeTab === "discover" ? publicGroups === undefined : myGroups === undefined;
     const displayGroups = activeTab === "discover" ? filteredPublicGroups : filteredMyGroups;
@@ -240,77 +248,91 @@ export default function CommunityPageContent() {
             <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
                 <div className="space-y-8 max-w-6xl mx-auto px-4 pb-12">
                     {/* Hero Section */}
-                    <div className="relative overflow-hidden rounded-3xl bg-linear-to-br from-primary/5 via-primary/10 to-primary/5 border">
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(120,119,198,0.1),transparent_50%)]" />
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,rgba(120,119,198,0.15),transparent_50%)]" />
+                    <div className="relative overflow-hidden rounded-2xl border border-border bg-card">
+                        {/* Top row — branding + actions */}
+                        <div className="relative px-6 pt-8 pb-6 md:px-8 md:pt-10 md:pb-8">
+                            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
+                                <div className="max-w-lg space-y-4">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
+                                            <Activity className="w-4 h-4 text-primary" />
+                                        </div>
+                                        <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">Community Hub</span>
+                                    </div>
+                                    <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
+                                        Find Your{" "}
+                                        <span className="text-primary">Community</span>
+                                    </h1>
+                                    <p className="text-sm text-muted-foreground leading-relaxed">
+                                        Connect with neighbors, join local groups, and make a difference in
+                                        {myProfile?.city?.name ? ` ${myProfile.city.name}` : " your city"}.
+                                    </p>
+                                </div>
 
-                        <div className="relative px-6 py-12 md:px-10 md:py-16">
-                            <div className="max-w-2xl">
-                                <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight text-foreground mb-4">
-                                    Find Your{" "}
-                                    <span className="text-transparent bg-clip-text bg-linear-to-r from-primary to-primary/60">
-                                        Community
-                                    </span>
-                                </h1>
-                                <p className="text-lg text-muted-foreground mb-6 max-w-xl">
-                                    Connect with neighbors, join local groups, and make a difference in your city.
-                                    Together we build stronger communities.
-                                </p>
-
-                                <div className="flex flex-wrap gap-4">
+                                <div className="flex flex-wrap md:flex-col gap-2.5 shrink-0">
                                     <Button
-                                        size="lg"
                                         onClick={() => setCreateDialogOpen(true)}
-                                        className="gap-2 shadow-lg shadow-primary/25"
+                                        className="gap-2 shadow-lg shadow-primary/20 h-10 rounded-xl font-mono text-xs uppercase"
                                     >
-                                        <Plus className="w-5 h-5" />
+                                        <Plus className="w-4 h-4" />
                                         Create Community
                                     </Button>
                                     <Button
-                                        size="lg"
                                         variant="outline"
                                         onClick={() => document.getElementById('search')?.focus()}
-                                        className="gap-2"
+                                        className="gap-2 h-10 rounded-xl font-mono text-xs uppercase"
                                     >
-                                        <Search className="w-4 h-4" />
+                                        <Search className="w-3.5 h-3.5" />
                                         Explore Groups
                                     </Button>
-                                </div>
-
-                                {/* Quick Stats */}
-                                <div className="flex flex-wrap gap-6 mt-8 pt-6 border-t border-border/50">
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <Users className="w-4 h-4 text-primary" />
-                                        <span>{publicGroups?.length || 0} Active Groups</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <MapPin className="w-4 h-4 text-primary" />
-                                        <span>Local Communities</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <Calendar className="w-4 h-4 text-primary" />
-                                        <span>New Groups Every Week</span>
-                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Community Map CTA */}
-                        <div className="mt-8 pt-8 border-t border-border/50">
-                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 bg-primary/5 rounded-2xl border border-primary/10">
-                                <div className="space-y-1 text-center sm:text-left">
-                                    <h3 className="font-bold font-mono uppercase tracking-tight flex items-center justify-center sm:justify-start gap-2">
-                                        <MapIcon className="w-5 h-5 text-primary" /> LIVE CITY LEDGER MAP
-                                    </h3>
-                                    <p className="text-xs text-muted-foreground uppercase">Visualize all local communities and active events in real-time</p>
+                        {/* Stats strip */}
+                        <div className="px-6 md:px-8 pb-6 md:pb-8">
+                            <div className="grid grid-cols-3 gap-3">
+                                <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        <Users className="w-3.5 h-3.5 text-primary" />
+                                        <span className="text-lg font-bold text-foreground">{publicGroups?.length || 0}</span>
+                                    </div>
+                                    <p className="text-[9px] font-mono uppercase text-muted-foreground tracking-wider">Active Groups</p>
                                 </div>
-                                <Button
-                                    onClick={() => router.push("/map")}
-                                    className="gap-2 font-mono text-xs uppercase h-10 px-6 shadow-lg shadow-primary/20"
-                                >
-                                    Explore Live Map <ArrowRight className="w-4 h-4" />
-                                </Button>
+                                <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        <MapPin className="w-3.5 h-3.5 text-primary" />
+                                        <span className="text-lg font-bold text-foreground">{nearbyGroups.length}</span>
+                                    </div>
+                                    <p className="text-[9px] font-mono uppercase text-muted-foreground tracking-wider">Near You</p>
+                                </div>
+                                <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        <Globe className="w-3.5 h-3.5 text-primary" />
+                                        <span className="text-lg font-bold text-foreground">{myGroups?.length || 0}</span>
+                                    </div>
+                                    <p className="text-[9px] font-mono uppercase text-muted-foreground tracking-wider">My Groups</p>
+                                </div>
                             </div>
+                        </div>
+
+                        {/* Map CTA strip */}
+                        <div className="border-t border-border">
+                            <button
+                                onClick={() => router.push("/map")}
+                                className="w-full flex items-center justify-between gap-4 px-6 py-4 md:px-8 hover:bg-muted/30 transition-colors group/map"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                                        <MapIcon className="w-4 h-4 text-primary" />
+                                    </div>
+                                    <div className="text-left">
+                                        <p className="text-xs font-bold font-mono uppercase tracking-tight">Live City Ledger Map</p>
+                                        <p className="text-[10px] text-muted-foreground">Visualize communities & events in real-time</p>
+                                    </div>
+                                </div>
+                                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover/map:text-primary group-hover/map:translate-x-1 transition-all shrink-0" />
+                            </button>
                         </div>
                     </div>
 
@@ -364,37 +386,46 @@ export default function CommunityPageContent() {
                         </div>
                     </div>
 
-                    {/* Featured Section (Discover only) */}
-                    {activeTab === "discover" && !searchQuery && featuredGroups.length > 0 && (
+                    {/* Nearby Communities (only if user has a city & there are matches) */}
+                    {activeTab === "discover" && !searchQuery && nearbyGroups.length > 0 && (
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <TrendingUp className="w-5 h-5 text-primary" />
-                                    Trending Communities
+                                <h2 className="text-sm font-bold font-mono uppercase tracking-tight flex items-center gap-2">
+                                    <MapPin className="w-4 h-4 text-primary" />
+                                    Near You in {myProfile?.city?.name}
                                 </h2>
+                                <span className="text-[10px] font-mono text-muted-foreground">
+                                    {nearbyGroups.length} {nearbyGroups.length === 1 ? "group" : "groups"}
+                                </span>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {featuredGroups.map((group: any) => (
-                                    <div
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {nearbyGroups.map((group: any) => (
+                                    <button
                                         key={group._id}
                                         onClick={() => router.push(`/community/${group._id}`)}
-                                        className="group p-4 rounded-xl border bg-card hover:bg-accent/50 transition-all cursor-pointer hover:shadow-lg"
+                                        className="group/nearby flex items-center gap-3 p-3.5 rounded-xl border border-border bg-card hover:bg-muted/30 transition-all text-left cursor-pointer hover:border-primary/30"
                                     >
-                                        <div className="flex items-start gap-3">
-                                            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                                                <Users className="w-6 h-6 text-primary" />
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <h3 className="font-semibold truncate group-hover:text-primary transition-colors">
-                                                    {group.name}
-                                                </h3>
-                                                <p className="text-sm text-muted-foreground truncate">
-                                                    {group.memberCount} members
-                                                </p>
-                                            </div>
-                                            <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                                        <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-muted">
+                                            {group.coverImageUrl ? (
+                                                <img src={group.coverImageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                            ) : (
+                                                <div className="w-full h-full bg-primary/10 flex items-center justify-center">
+                                                    <Users className="w-4 h-4 text-primary" />
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
+                                        <div className="min-w-0 flex-1">
+                                            <h3 className="text-sm font-semibold truncate group-hover/nearby:text-primary transition-colors">
+                                                {group.name}
+                                            </h3>
+                                            <div className="flex items-center gap-2 mt-0.5">
+                                                <span className="text-[10px] font-mono text-muted-foreground">{group.memberCount} members</span>
+                                                <span className="text-muted-foreground/30">·</span>
+                                                <span className="text-[10px] font-mono text-muted-foreground">{group.category}</span>
+                                            </div>
+                                        </div>
+                                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover/nearby:text-primary group-hover/nearby:translate-x-0.5 transition-all shrink-0" />
+                                    </button>
                                 ))}
                             </div>
                         </div>
@@ -517,7 +548,7 @@ export default function CommunityPageContent() {
                                             }}
                                             className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
                                         >
-                                            {rowGroups.map((group: any) => (
+                                            {rowGroups.map((group) => (
                                                 <GroupCard key={group._id} group={group} />
                                             ))}
                                         </div>

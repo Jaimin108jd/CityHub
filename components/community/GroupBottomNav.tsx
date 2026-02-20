@@ -1,7 +1,15 @@
 "use client";
 
-import { Users, Eye, MessageSquare, Calendar, Shield, History } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Eye, MessageSquare, Calendar, Users, Shield, History } from "lucide-react";
+
+export type GroupTabId = "overview" | "town-hall" | "events" | "members" | "governance" | "logs";
+
+interface GroupBottomNavProps {
+    activeTab: string;
+    onTabChange: (tabId: GroupTabId) => void;
+    className?: string;
+}
 
 const TAB_CONFIG = [
     { id: "overview", label: "Overview", icon: Eye },
@@ -12,30 +20,28 @@ const TAB_CONFIG = [
     { id: "logs", label: "Logs", icon: History },
 ] as const;
 
-type TabId = (typeof TAB_CONFIG)[number]["id"];
-
-interface GroupBottomNavProps {
-    activeTab: TabId;
-    onTabChange: (tabId: TabId) => void;
-}
-
-export function GroupBottomNav({ activeTab, onTabChange }: GroupBottomNavProps) {
+export function GroupBottomNav({ activeTab, onTabChange, className }: GroupBottomNavProps) {
     return (
-        <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-background/80 backdrop-blur-lg md:hidden z-50">
-            <nav className="flex items-center justify-between px-2 h-16 overflow-x-auto scrollbar-hide">
+        <div className={cn("md:hidden fixed bottom-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-t border-border/50 pb-safe", className)}>
+            <nav className="flex items-center justify-around px-2 ">
                 {TAB_CONFIG.map(({ id, label, icon: Icon }) => {
                     const isActive = activeTab === id;
                     return (
                         <button
                             key={id}
-                            onClick={() => onTabChange(id)}
+                            onClick={() => onTabChange(id as GroupTabId)}
                             className={cn(
-                                "flex flex-col items-center justify-center gap-1 transition-colors px-2 min-w-[64px]",
-                                isActive ? "text-primary bg-primary/5" : "text-muted-foreground hover:text-foreground"
+                                "flex flex-col items-center gap-1 py-1 px-3 rounded-lg transition-all relative flex-1 min-w-0",
+                                isActive ? "text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/20"
                             )}
                         >
-                            <Icon className={cn("w-5 h-5", isActive && "fill-current")} />
-                            <span className="text-[10px] font-mono font-bold uppercase tracking-wider">{label}</span>
+                            <div className={cn(
+                                "p-1 rounded-full transition-colors",
+                                isActive ? "bg-primary/10" : "bg-transparent"
+                            )}>
+                                <Icon className={cn("w-5 h-5", isActive && "fill-current")} strokeWidth={isActive ? 2.5 : 2} />
+                            </div>
+                            <span className={cn("text-[10px] font-medium truncate w-full text-center", isActive ? "font-bold" : "")}>{label}</span>
                         </button>
                     );
                 })}
