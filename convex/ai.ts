@@ -477,7 +477,7 @@ export const getFlaggedMessages = query({
             .first();
 
         if (!membership || (membership.role !== "manager" && membership.role !== "founder")) {
-            throw new Error("Only managers can view flagged content");
+            return [];
         }
 
         const flags = await ctx.db
@@ -527,7 +527,7 @@ export const getAutoModStatus = query({
             .first();
 
         if (!membership || (membership.role !== "manager" && membership.role !== "founder")) {
-            throw new Error("Only managers can view AutoMod status");
+            return { users: [], recentWarningLog: [] };
         }
 
         // Get all warnings for this group

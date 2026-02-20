@@ -10,6 +10,7 @@
 
 import type * as ai from "../ai.js";
 import type * as auth from "../auth.js";
+import type * as automod from "../automod.js";
 import type * as channels from "../channels.js";
 import type * as cities from "../cities.js";
 import type * as crons from "../crons.js";
@@ -24,6 +25,7 @@ import type * as notifications from "../notifications.js";
 import type * as paymentInternals from "../paymentInternals.js";
 import type * as payments from "../payments.js";
 import type * as polls from "../polls.js";
+import type * as seed from "../seed.js";
 import type * as users from "../users.js";
 
 import type {
@@ -35,6 +37,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   ai: typeof ai;
   auth: typeof auth;
+  automod: typeof automod;
   channels: typeof channels;
   cities: typeof cities;
   crons: typeof crons;
@@ -49,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   paymentInternals: typeof paymentInternals;
   payments: typeof payments;
   polls: typeof polls;
+  seed: typeof seed;
   users: typeof users;
 }>;
 

@@ -8,6 +8,7 @@ export default defineSchema({
     name: v.string(),
     city: v.object({
       name: v.string(),
+      address: v.optional(v.string()),
       country: v.string(),
       state: v.optional(v.string()),
       lat: v.number(),
@@ -27,6 +28,7 @@ export default defineSchema({
     tags: v.array(v.string()),
     city: v.object({
       name: v.string(),
+      address: v.optional(v.string()),
       country: v.string(),
       state: v.optional(v.string()),
       lat: v.number(),
@@ -35,6 +37,8 @@ export default defineSchema({
     coverImageId: v.optional(v.id("_storage")),
     createdBy: v.string(), // userId
     isPublic: v.boolean(),
+    transparencyMode: v.optional(v.union(v.literal("private"), v.literal("public_members"), v.literal("public_all"))),
+    foundersOnlyRules: v.optional(v.boolean()),
   })
     .index("by_city", ["city.name"])
     .index("by_category", ["category"])
@@ -174,16 +178,25 @@ export default defineSchema({
     .index("by_actor", ["actorId"])
     .index("by_target", ["targetUserId"]),
 
-  // Democratic action proposals (demote, kick, etc. require majority vote)
+  // Unified governance engine — all proposals (person actions, policy, reconfirmation) in one table
   governanceProposals: defineTable({
     groupId: v.id("groups"),
-    actionType: v.string(), // "demote" | "kick"
+    proposalCategory: v.optional(v.string()), // "person" | "policy" — optional for backward compat
+    actionType: v.string(), // person: "demote"|"kick"|"promote"|"revert_*"|"reconfirm_manager"  policy: "approve_fund"|"change_visibility"|"amend_description"|"custom"
+    proposalTitle: v.optional(v.string()),     // human-readable title
+    proposalDescription: v.optional(v.string()), // detailed description
     proposerId: v.string(), // who proposed
-    targetUserId: v.string(), // who is being acted upon
+    targetUserId: v.string(), // who is being acted upon ("system" for policy proposals)
+    policyPayload: v.optional(v.any()), // flexible data for auto-execution
     reason: v.optional(v.string()),
     status: v.string(), // "voting" | "approved" | "rejected" | "expired"
-    requiredVotes: v.number(), // majority threshold
+    // Voting threshold model
+    approvalType: v.optional(v.string()), // "majority" | "supermajority"
+    thresholdPercent: v.optional(v.number()), // e.g. 50 or 66
+    requiredVotes: v.number(), // computed from threshold + eligible voters
+    totalEligibleVoters: v.optional(v.number()), // snapshot at creation time
     createdAt: v.number(),
+    expiresAt: v.optional(v.number()), // configurable per-proposal
     resolvedAt: v.optional(v.number()),
   })
     .index("by_group", ["groupId"])
@@ -241,7 +254,7 @@ export default defineSchema({
     transcriptionStatus: v.optional(v.string()), // "pending" | "completed" | "failed"
     // Moderation fields
     isFlagged: v.optional(v.boolean()),
-    moderationStatus: v.optional(v.string()), // "flagged" | "hidden" | "cleared"
+    moderationStatus: v.optional(v.string()), // "flagged" | "hidden" | "cleared" | "automod_blocked"
   })
     .index("by_channel", ["channelId", "createdAt"])
     .index("by_group", ["groupId"]),
@@ -389,4 +402,30 @@ export default defineSchema({
     .index("by_group", ["groupId"])
     .index("by_message", ["messageId"])
     .index("by_status", ["groupId", "status"]),
+
+  // ─── AutoMod: Discord-like warnings & timeouts ───
+  moderationWarnings: defineTable({
+    groupId: v.id("groups"),
+    userId: v.string(),
+    channelId: v.id("channels"),
+    blockedContent: v.string(),
+    category: v.string(), // "profanity" | "slur" | "sexual" | "threat"
+    reason: v.string(),
+    warningNumber: v.number(), // sequential per user per group (in 24h window)
+    timeoutApplied: v.optional(v.number()), // timeout duration in ms, if any
+    createdAt: v.number(),
+  })
+    .index("by_group_user", ["groupId", "userId"])
+    .index("by_group", ["groupId"]),
+
+  userTimeouts: defineTable({
+    groupId: v.id("groups"),
+    userId: v.string(),
+    timeoutUntil: v.number(), // timestamp — user can't send messages until this
+    reason: v.string(),
+    warningCount: v.number(), // how many warnings led to this timeout
+    issuedBy: v.string(), // "automod" or a manager userId
+    createdAt: v.number(),
+  })
+    .index("by_group_user", ["groupId", "userId"]),
 });

@@ -104,6 +104,7 @@ export function GlobalMap({ className }: { className?: string }) {
         filterCategory: filterCategory === "all" ? undefined : filterCategory,
     });
     const groups = useQuery(api.groups.listPublicGroups, {});
+    const cityMemories = useQuery(api.events.getCityMemory, {});
 
     // Text-based filter
     const textFilteredEvents = useMemo(() => {
@@ -251,6 +252,94 @@ export function GlobalMap({ className }: { className?: string }) {
                         </MapMarker>
                     ))}
                 </MapMarkerClusterGroup>
+
+                {/* City Memory Markers (Feature 4: Public City Stats) */}
+                {cityMemories?.map((memory) => (
+                    <MapMarker
+                        key={`memory-${memory.cityName}-${memory.country}`}
+                        position={[memory.lat, memory.lon]}
+                        icon={
+                            <div className="relative group">
+                                <div className="absolute -inset-1 bg-linear-to-tr from-amber-500/30 to-purple-500/30 rounded-full blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                <div className="w-10 h-10 rounded-full bg-background border-2 border-amber-500 flex flex-col items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.3)] relative z-10 overflow-hidden transform group-hover:scale-110 transition-transform duration-300">
+                                    <div className="absolute inset-0 bg-linear-to-tr from-amber-500/10 to-transparent" />
+                                    <Sparkles className="w-5 h-5 text-amber-500 drop-shadow-sm" />
+                                </div>
+                                {/* City Impact Badge */}
+                                <div className="absolute top-1/2 left-full w-max -translate-y-1/2 ml-3 bg-background/95 backdrop-blur-xl border border-amber-500/40 px-2.5 py-1.5 rounded-md shadow-xl pointer-events-none opacity-0 translate-x-[-10px] group-hover:translate-x-0 group-hover:opacity-100 transition-all duration-300 z-20">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-amber-500 font-mono flex items-center gap-1.5">
+                                        <Zap className="w-3.5 h-3.5" /> Civic Impact Zone
+                                    </p>
+                                </div>
+                            </div>
+                        }
+                        iconAnchor={[20, 20]}
+                        popupAnchor={[0, -20]}
+                    >
+                        <MapPopup className="p-0 border-none bg-transparent shadow-none">
+                            <div className="w-72 overflow-hidden rounded-xl border border-amber-500/30 bg-card text-card-foreground shadow-2xl animate-in zoom-in-95 duration-200">
+                                <div className="bg-linear-to-br from-amber-500/10 to-purple-500/5 p-4 border-b border-border relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 p-4 opacity-10">
+                                        <Globe className="w-16 h-16" />
+                                    </div>
+                                    <div className="flex items-center gap-2 mb-2 relative z-10">
+                                        <Sparkles className="w-4 h-4 text-amber-500" />
+                                        <h3 className="font-bold uppercase tracking-widest text-xs font-mono text-amber-500">City Memory Log</h3>
+                                    </div>
+                                    <p className="font-bold text-xl mb-0.5 tracking-tight relative z-10">{memory.cityName}, {memory.country}</p>
+                                </div>
+                                <div className="p-4 space-y-5">
+                                    <div className="grid grid-cols-2 gap-3 mt-1">
+                                        <div className="space-y-1 p-2.5 bg-muted/40 rounded-lg border border-border/60">
+                                            <p className="text-[9px] text-muted-foreground font-mono uppercase font-bold tracking-wider flex items-center gap-1">
+                                                <Calendar className="w-3.5 h-3.5" /> Events Hosted
+                                            </p>
+                                            <p className="text-xl font-black text-primary font-mono">{memory.totalEvents}</p>
+                                        </div>
+                                        <div className="space-y-1 p-2.5 bg-muted/40 rounded-lg border border-border/60">
+                                            <p className="text-[9px] text-muted-foreground font-mono uppercase font-bold tracking-wider flex items-center gap-1">
+                                                <Users className="w-3.5 h-3.5" /> Total Attendees
+                                            </p>
+                                            <p className="text-xl font-black text-emerald-500 font-mono">{memory.totalAttendees}</p>
+                                        </div>
+                                        <div className="space-y-1 p-2.5 bg-muted/40 rounded-lg border border-border/60">
+                                            <p className="text-[9px] text-muted-foreground font-mono uppercase font-bold tracking-wider flex items-center gap-1">
+                                                <Globe className="w-3.5 h-3.5" /> Active Hubs
+                                            </p>
+                                            <p className="text-xl font-black text-blue-500 font-mono">{memory.groupCount}</p>
+                                        </div>
+                                        <div className="space-y-1 p-2.5 bg-muted/40 rounded-lg border border-border/60">
+                                            <p className="text-[9px] text-muted-foreground font-mono uppercase font-bold tracking-wider flex items-center gap-1">
+                                                <Camera className="w-3.5 h-3.5" /> Photo Archive
+                                            </p>
+                                            <p className="text-xl font-black text-purple-500 font-mono">{memory.totalPhotos}</p>
+                                        </div>
+                                    </div>
+
+                                    {memory.recentEvents.length > 0 && (
+                                        <div className="space-y-2.5 pt-4 border-t border-border">
+                                            <p className="text-[10px] text-muted-foreground font-mono uppercase font-bold tracking-widest">Recent Impact</p>
+                                            <div className="space-y-3">
+                                                {memory.recentEvents.slice(0, 3).map((re: any, i: number) => (
+                                                    <div key={i} className="flex flex-col gap-1">
+                                                        <p className="text-xs font-bold line-clamp-1">{re.title}</p>
+                                                        <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-mono uppercase">
+                                                            <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {re.attendeeCount}</span>
+                                                            <span className="w-1 h-1 rounded-full bg-border" />
+                                                            <span>By {re.groupName}</span>
+                                                            <span className="w-1 h-1 rounded-full bg-border" />
+                                                            <span>{new Date(re.startTime).toLocaleString("default", { month: "short", year: "numeric" })}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </MapPopup>
+                    </MapMarker>
+                ))}
 
                 {/* Community Hub Markers (smaller, secondary) */}
                 {groups?.filter((g) => g.city.lat && g.city.lon).map((group) => (

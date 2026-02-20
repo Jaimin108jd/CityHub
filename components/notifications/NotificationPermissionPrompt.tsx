@@ -26,8 +26,12 @@ export function NotificationPermissionPrompt() {
         if (Notification.permission !== "default") return;
 
         // Check if user already dismissed
-        const wasDismissed = localStorage.getItem("cityhub_notif_dismissed");
-        if (wasDismissed) return;
+        try {
+            const wasDismissed = localStorage.getItem("cityhub_notif_dismissed");
+            if (wasDismissed) return;
+        } catch (e) {
+            console.warn("localStorage access denied:", e);
+        }
 
         // Show after a delay (user should be engaged already)
         const timer = setTimeout(() => setVisible(true), 2000);
@@ -69,7 +73,11 @@ export function NotificationPermissionPrompt() {
     const handleDismiss = useCallback(() => {
         setVisible(false);
         setDismissed(true);
-        localStorage.setItem("cityhub_notif_dismissed", "true");
+        try {
+            localStorage.setItem("cityhub_notif_dismissed", "true");
+        } catch (e) {
+            console.warn("localStorage access denied:", e);
+        }
     }, []);
 
     if (!visible || dismissed) return null;

@@ -3,6 +3,7 @@ import { mutation, query, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { authComponent } from "./auth";
 import { createDefaultChannels } from "./channels";
+import { computeGovernanceHealth } from "./governance";
 
 /** Safe wrapper — returns null instead of throwing when unauthenticated */
 async function getAuthUserSafe(ctx: any) {
@@ -87,10 +88,15 @@ export const updateGroup = mutation({
         tags: v.optional(v.array(v.string())),
         coverImageId: v.optional(v.id("_storage")),
         isPublic: v.optional(v.boolean()),
+        transparencyMode: v.optional(v.union(v.literal("private"), v.literal("public_members"), v.literal("public_all"))),
+        foundersOnlyRules: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
         const user = await getAuthUserSafe(ctx);
         if (!user) throw new Error("Unauthorized");
+
+        const group = await ctx.db.get(args.groupId);
+        if (!group) throw new Error("Group not found");
 
         // Verify manager role
         const membership = await ctx.db
@@ -102,6 +108,13 @@ export const updateGroup = mutation({
 
         if (!membership || (membership.role !== "manager" && membership.role !== "founder")) {
             throw new Error("Only managers can edit the group");
+        }
+
+        if (group.foundersOnlyRules && membership.role !== "founder") {
+            // Check if they are trying to edit structural rules
+            if (args.isPublic !== undefined || args.transparencyMode !== undefined || args.foundersOnlyRules !== undefined) {
+                throw new Error("Only the founder can change constitutional rules (visibility or structural settings).");
+            }
         }
 
         const { groupId, ...updates } = args;
@@ -499,6 +512,7 @@ async function approveJoinRequest(ctx: any, requestId: any, request: any, actorI
 
     // Log governance action
     await logGovernanceAction(ctx, request.groupId, "vote_resolution_approved", actorId, "Join request approved", request.userId, requestId);
+    await logGovernanceAction(ctx, request.groupId, "join", request.userId, "Joined the group via join request");
 }
 
 // ─── Helper: Check Majority & Resolve ───
@@ -564,6 +578,10 @@ export const handleJoinRequest = mutation({
         if (isBootstrap) {
             // ─── BOOTSTRAP MODE: Direct approve/reject ───
             if (args.action === "approve") {
+                const managerCount = currentMembers.filter(m => m.role === "manager" || m.role === "founder").length;
+                if (currentMembers.length === 3 && managerCount < 2) {
+                    throw new Error("GOVERNANCE_ERROR_PROMOTE_REQUIRED: Cannot approve 4th member while having only 1 manager. Promote a member first.");
+                }
                 await approveJoinRequest(ctx, args.requestId, request, user._id);
             } else {
                 await ctx.db.patch(args.requestId, { status: "rejected", resolvedAt: Date.now() });
@@ -583,7 +601,7 @@ export const handleJoinRequest = mutation({
             }
 
             // Transition request to voting state
-            const requiredVotes = Math.floor(managerCount / 2) + 1; // simple majority
+            const requiredVotes = Math.ceil(managerCount / 2); // simple majority
             await ctx.db.patch(args.requestId, {
                 status: "voting",
                 requiredVotes,
@@ -601,6 +619,9 @@ export const handleJoinRequest = mutation({
             // If only 2 managers and one votes, check if majority already met
             await checkMajorityAndResolve(ctx, args.requestId, request.groupId, managerCount, user._id);
         }
+
+        const finalRequest = await ctx.db.get(args.requestId);
+        return finalRequest?.status || "processed";
     },
 });
 
@@ -670,7 +691,9 @@ export const castVote = mutation({
         // Check majority (Approvals >= 50% of managers)
         // Tie counts as approval.
         await checkMajorityAndResolve(ctx, args.requestId, request.groupId, managerCount, user._id);
-        // Otherwise: still waiting for more votes
+
+        const finalRequest = await ctx.db.get(args.requestId);
+        return finalRequest?.status || "processed";
     },
 });
 
@@ -906,11 +929,11 @@ export const getJoinRequests = query({
             .withIndex("by_group", (q) => q.eq("groupId", args.groupId))
             .collect();
 
-        // Only pending
-        const pending = requests.filter((r) => r.status === "pending");
+        // Only pending and voting
+        const activeRequests = requests.filter((r) => r.status === "pending" || r.status === "voting");
 
         return Promise.all(
-            pending.map(async (r) => {
+            activeRequests.map(async (r) => {
                 const profile = await ctx.db
                     .query("users")
                     .withIndex("by_userId", (q) => q.eq("userId", r.userId))
@@ -923,11 +946,20 @@ export const getJoinRequests = query({
                     );
                 }
 
+                let votes: any[] = [];
+                if (r.status === "voting") {
+                    votes = await ctx.db
+                        .query("votes")
+                        .withIndex("by_request", (q) => q.eq("requestId", r._id))
+                        .collect();
+                }
+
                 return {
                     ...r,
                     name: profile?.name || "Unknown",
                     avatarUrl,
                     interests: profile?.interests || [],
+                    votes,
                 };
             })
         );
@@ -960,7 +992,7 @@ export const getMyJoinRequestStatus = query({
             )
             .first();
 
-        if (request && request.status === "pending") {
+        if (request && (request.status === "pending" || request.status === "voting")) {
             return { status: "pending" as const, role: null, userId: user._id };
         }
 
@@ -1114,14 +1146,20 @@ export const getGovernanceLogs = query({
         const user = await getAuthUserSafe(ctx);
         if (!user) return [];
 
-        // Verify membership
+        const group = await ctx.db.get(args.groupId);
+        if (!group) return [];
+
         const membership = await ctx.db
             .query("groupMembers")
             .withIndex("by_group_user", (q: any) =>
                 q.eq("groupId", args.groupId).eq("userId", user._id)
             )
             .first();
-        if (!membership) return [];
+
+        const isManager = membership?.role === "manager" || membership?.role === "founder";
+        if (!isManager && group.transparencyMode !== "public_all" && (group.transparencyMode !== "public_members" || !membership)) {
+            return [];
+        }
 
         const logs = await ctx.db
             .query("governanceLogs")
@@ -1195,6 +1233,18 @@ export const proposeAction = mutation({
             )
             .first();
 
+        // Enforce anti-centralization rule
+        if (targetMembership?.role === "manager" && (args.actionType === "demote" || args.actionType === "kick" || args.actionType === "revert_promotion")) {
+            const allMembers = await ctx.db
+                .query("groupMembers")
+                .withIndex("by_group", (q: any) => q.eq("groupId", args.groupId))
+                .collect();
+            const managerCount = allMembers.filter((m: any) => m.role === "manager" || m.role === "founder").length;
+            if (allMembers.length > 3 && managerCount <= 2) {
+                throw new Error("Cannot propose action: Groups over 3 members must maintain at least 2 managers.");
+            }
+        }
+
         // For revert_removal, target is NOT a member (that's expected)
         if (args.actionType === "revert_removal") {
             if (targetMembership) throw new Error("User is already a member — nothing to revert.");
@@ -1237,17 +1287,23 @@ export const proposeAction = mutation({
             .withIndex("by_group", (q: any) => q.eq("groupId", args.groupId))
             .collect();
         const managerCount = allMembers.filter((m: any) => m.role === "manager" || m.role === "founder").length;
-        const requiredVotes = Math.floor(managerCount / 2) + 1;
+        const requiredVotes = Math.ceil(managerCount / 2);
 
+        const now = Date.now();
         const proposalId = await ctx.db.insert("governanceProposals", {
             groupId: args.groupId,
+            proposalCategory: "person",
             actionType: args.actionType,
             proposerId: user._id,
             targetUserId: args.targetUserId,
             reason: args.reason,
             status: "voting",
+            approvalType: "majority",
+            thresholdPercent: 50,
             requiredVotes,
-            createdAt: Date.now(),
+            totalEligibleVoters: managerCount,
+            createdAt: now,
+            expiresAt: now + 48 * 60 * 60 * 1000, // 48h for person proposals
         });
 
         // Auto-cast proposer's approval vote
@@ -1335,7 +1391,11 @@ export const voteOnProposal = mutation({
         const managerCount = allMembers.filter((m: any) => m.role === "manager" || m.role === "founder").length;
 
         if (approveCount >= proposal.requiredVotes) {
-            await executeProposal(ctx, args.proposalId, proposal.groupId, user._id);
+            if (proposal.proposalCategory === "policy") {
+                await executePolicyProposal(ctx, args.proposalId, proposal.groupId, user._id);
+            } else {
+                await executeProposal(ctx, args.proposalId, proposal.groupId, user._id);
+            }
         } else if (rejectCount > managerCount - proposal.requiredVotes) {
             // Impossible to reach majority — reject
             await ctx.db.patch(args.proposalId, { status: "rejected", resolvedAt: Date.now() });
@@ -1395,6 +1455,14 @@ async function executeProposal(ctx: any, proposalId: any, groupId: any, actorId:
         if (group) {
             await notifyUser(ctx, proposal.targetUserId, `You were removed from "${group.name}" by democratic vote.`, "alert", { groupId });
         }
+    } else if (proposal.actionType === "reconfirm_manager") {
+        // Reconfirmation failed — demote the manager
+        await ctx.db.patch(targetMembership._id, { role: "member" });
+        await logGovernanceAction(ctx, groupId, "reconfirmation_removed", actorId, `Manager removed by reconfirmation vote`, proposal.targetUserId);
+        const group = await ctx.db.get(groupId);
+        if (group) {
+            await notifyUser(ctx, proposal.targetUserId, `You have been removed from the manager role in "${group.name}" by reconfirmation vote.`, "governance_alert", { groupId }, groupId);
+        }
     }
 
     await ctx.db.patch(proposalId, { status: "approved", resolvedAt: Date.now() });
@@ -1406,14 +1474,20 @@ export const getActiveProposals = query({
         const user = await getAuthUserSafe(ctx);
         if (!user) return [];
 
-        // Verify manager
+        const group = await ctx.db.get(args.groupId);
+        if (!group) return [];
+
         const membership = await ctx.db
             .query("groupMembers")
             .withIndex("by_group_user", (q: any) =>
                 q.eq("groupId", args.groupId).eq("userId", user._id)
             )
             .first();
-        if (!membership || (membership.role !== "manager" && membership.role !== "founder")) return [];
+
+        const isManager = membership?.role === "manager" || membership?.role === "founder";
+        if (!isManager && group.transparencyMode !== "public_all" && (group.transparencyMode !== "public_members" || !membership)) {
+            return [];
+        }
 
         const proposals = await ctx.db
             .query("governanceProposals")
@@ -1454,6 +1528,10 @@ export const getActiveProposals = query({
                     totalVotes: votes.length,
                     myVote: myVote?.vote || null,
                     isTarget: p.targetUserId === user._id,
+                    proposalCategory: p.proposalCategory || "person",
+                    proposalTitle: p.proposalTitle || null,
+                    proposalDescription: p.proposalDescription || null,
+                    expiresAt: p.expiresAt || null,
                 };
             })
         );
@@ -1462,10 +1540,10 @@ export const getActiveProposals = query({
     },
 });
 
-// ─── Auto-expire stale proposals (48h) — called by cron ───
+// ─── Auto-expire stale proposals — called by cron ───
 export const expireStaleProposals = internalMutation({
     handler: async (ctx) => {
-        const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+        const now = Date.now();
         const votingProposals = await ctx.db
             .query("governanceProposals")
             .filter((q) => q.eq(q.field("status"), "voting"))
@@ -1473,19 +1551,352 @@ export const expireStaleProposals = internalMutation({
 
         let expired = 0;
         for (const p of votingProposals) {
-            if (p.createdAt < cutoff) {
-                await ctx.db.patch(p._id, { status: "expired", resolvedAt: Date.now() });
+            const expiry = p.expiresAt || (p.createdAt + 48 * 60 * 60 * 1000);
+            if (now > expiry) {
+                // For reconfirmation expiry — manager is retained by default
+                const statusOnExpiry = p.actionType === "reconfirm_manager" ? "rejected" : "expired";
+                await ctx.db.patch(p._id, { status: statusOnExpiry, resolvedAt: now });
                 await ctx.db.insert("governanceLogs", {
                     groupId: p.groupId,
                     actionType: "proposal_expired",
                     actorId: "system",
                     targetUserId: p.targetUserId,
-                    details: `Proposal to ${p.actionType} expired after 48 hours without majority`,
-                    createdAt: Date.now(),
+                    details: p.actionType === "reconfirm_manager"
+                        ? `Reconfirmation vote expired — manager retained by default`
+                        : `Proposal to ${p.actionType} expired after voting window closed without majority`,
+                    createdAt: now,
                 });
                 expired++;
             }
         }
+
         return { expired };
+    },
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// ─── POLICY PROPOSALS (Feature 1: Expanded Proposal System) ─────
+// ═══════════════════════════════════════════════════════════════════
+
+export const createPolicyProposal = mutation({
+    args: {
+        groupId: v.id("groups"),
+        actionType: v.union(
+            v.literal("approve_fund"),
+            v.literal("change_visibility"),
+            v.literal("amend_description"),
+            v.literal("custom")
+        ),
+        title: v.string(),
+        description: v.string(),
+        policyPayload: v.optional(v.any()),
+    },
+    handler: async (ctx, args) => {
+        const user = await getAuthUserSafe(ctx);
+        if (!user) throw new Error("Unauthorized");
+
+        // Verify caller is manager/founder
+        const membership = await ctx.db
+            .query("groupMembers")
+            .withIndex("by_group_user", (q: any) =>
+                q.eq("groupId", args.groupId).eq("userId", user._id)
+            )
+            .first();
+        if (!membership || (membership.role !== "manager" && membership.role !== "founder")) {
+            throw new Error("Only managers can create proposals");
+        }
+
+        // Check no duplicate active policy proposal of same type
+        const existing = await ctx.db
+            .query("governanceProposals")
+            .withIndex("by_group_status", (q: any) =>
+                q.eq("groupId", args.groupId).eq("status", "voting")
+            )
+            .collect();
+        const dup = existing.find(
+            (p: any) => p.proposalCategory === "policy" && p.actionType === args.actionType && p.proposalTitle === args.title
+        );
+        if (dup) throw new Error("There is already an active proposal with the same title.");
+
+        // Calculate required votes
+        const allMembers = await ctx.db
+            .query("groupMembers")
+            .withIndex("by_group", (q: any) => q.eq("groupId", args.groupId))
+            .collect();
+        const managerCount = allMembers.filter((m: any) => m.role === "manager" || m.role === "founder").length;
+        const requiredVotes = Math.ceil(managerCount / 2);
+
+        const now = Date.now();
+        const proposalId = await ctx.db.insert("governanceProposals", {
+            groupId: args.groupId,
+            proposalCategory: "policy",
+            actionType: args.actionType,
+            proposalTitle: args.title,
+            proposalDescription: args.description,
+            proposerId: user._id,
+            targetUserId: "system",
+            policyPayload: args.policyPayload,
+            status: "voting",
+            approvalType: "majority",
+            thresholdPercent: 50,
+            requiredVotes,
+            totalEligibleVoters: managerCount,
+            createdAt: now,
+            expiresAt: now + 72 * 60 * 60 * 1000, // 72h voting window
+        });
+
+        // Auto-cast proposer's approval vote
+        await ctx.db.insert("proposalVotes", {
+            proposalId,
+            voterId: user._id,
+            vote: "approve",
+            castAt: now,
+        });
+
+        // Log
+        await logGovernanceAction(
+            ctx, args.groupId,
+            `proposal_policy_${args.actionType}`,
+            user._id,
+            `Created policy proposal: ${args.title}`
+        );
+
+        // If only 1 required vote, execute immediately
+        if (requiredVotes <= 1) {
+            await executePolicyProposal(ctx, proposalId, args.groupId, user._id);
+        }
+
+        return proposalId;
+    },
+});
+
+async function executePolicyProposal(ctx: any, proposalId: any, groupId: any, actorId: string) {
+    const proposal = await ctx.db.get(proposalId);
+    if (!proposal || proposal.status !== "voting") return;
+
+    const now = Date.now();
+
+    if (proposal.actionType === "change_visibility") {
+        const group = await ctx.db.get(groupId);
+        if (group) {
+            const newVisibility = proposal.policyPayload?.isPublic ?? !group.isPublic;
+            await ctx.db.patch(groupId, { isPublic: newVisibility });
+            await logGovernanceAction(ctx, groupId, "visibility_changed", actorId, `Group visibility changed to ${newVisibility ? "public" : "private"} by vote`);
+        }
+    } else if (proposal.actionType === "amend_description") {
+        const newDescription = proposal.policyPayload?.newDescription;
+        if (newDescription && typeof newDescription === "string") {
+            await ctx.db.patch(groupId, { description: newDescription });
+            await logGovernanceAction(ctx, groupId, "description_amended", actorId, `Group description amended by vote`);
+        }
+    } else if (proposal.actionType === "approve_fund") {
+        const payload = proposal.policyPayload;
+        if (payload?.title && payload?.targetAmount) {
+            await ctx.db.insert("groupFunds", {
+                groupId,
+                title: payload.title,
+                description: payload.description || "",
+                targetAmount: payload.targetAmount,
+                currentAmount: 0,
+                createdBy: actorId,
+                isActive: true,
+                createdAt: now,
+            });
+            await logGovernanceAction(ctx, groupId, "fund_approved", actorId, `Fund "${payload.title}" approved by vote for ₹${payload.targetAmount}`);
+        }
+    } else {
+        // "custom" — no auto-execution, just approve
+        await logGovernanceAction(ctx, groupId, "custom_proposal_approved", actorId, `Custom proposal "${proposal.proposalTitle}" approved by vote`);
+    }
+
+    await ctx.db.patch(proposalId, { status: "approved", resolvedAt: now });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ─── GOVERNANCE HEALTH SCORE (Feature 2) ────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+
+export const getGovernanceHealth = query({
+    args: { groupId: v.id("groups") },
+    handler: async (ctx, args) => {
+        const user = await getAuthUserSafe(ctx);
+        if (!user) return null;
+
+        const group = await ctx.db.get(args.groupId);
+        if (!group) return null;
+
+        const membership = await ctx.db
+            .query("groupMembers")
+            .withIndex("by_group_user", (q: any) =>
+                q.eq("groupId", args.groupId).eq("userId", user._id)
+            )
+            .first();
+
+        const isManager = membership?.role === "manager" || membership?.role === "founder";
+        if (!isManager && group.transparencyMode !== "public_all" && (group.transparencyMode !== "public_members" || !membership)) {
+            return null;
+        }
+
+        return await computeGovernanceHealth(ctx.db, args.groupId);
+    },
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// ─── MANAGER RECONFIRMATION (Feature 3: via Unified Proposals) ──
+// ═══════════════════════════════════════════════════════════════════
+
+// Reconfirmation is unified into governanceProposals with actionType: "reconfirm_manager"
+// Voting uses existing voteOnProposal. Approve = remove manager. Reject = manager stays.
+
+export const triggerReconfirmation = mutation({
+    args: {
+        groupId: v.id("groups"),
+        targetManagerId: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const user = await getAuthUserSafe(ctx);
+        if (!user) throw new Error("Unauthorized");
+
+        // Verify caller is manager/founder
+        const membership = await ctx.db
+            .query("groupMembers")
+            .withIndex("by_group_user", (q: any) =>
+                q.eq("groupId", args.groupId).eq("userId", user._id)
+            )
+            .first();
+        if (!membership || (membership.role !== "manager" && membership.role !== "founder")) {
+            throw new Error("Only managers can trigger reconfirmation");
+        }
+
+        // Target must be a manager (not founder)
+        const targetMembership = await ctx.db
+            .query("groupMembers")
+            .withIndex("by_group_user", (q: any) =>
+                q.eq("groupId", args.groupId).eq("userId", args.targetManagerId)
+            )
+            .first();
+        if (!targetMembership || targetMembership.role !== "manager") {
+            throw new Error("Target must be a manager (founders are exempt from reconfirmation)");
+        }
+
+        // Check no active reconfirmation proposal for same manager
+        const existing = await ctx.db
+            .query("governanceProposals")
+            .withIndex("by_group_status", (q: any) =>
+                q.eq("groupId", args.groupId).eq("status", "voting")
+            )
+            .collect();
+        const dup = existing.find((p: any) => p.actionType === "reconfirm_manager" && p.targetUserId === args.targetManagerId);
+        if (dup) throw new Error("There is already an active reconfirmation vote for this manager.");
+
+        // Calculate required votes (majority of managers, excluding target)
+        const allMembers = await ctx.db
+            .query("groupMembers")
+            .withIndex("by_group", (q: any) => q.eq("groupId", args.groupId))
+            .collect();
+
+        // Enforce anti-centralization rule
+        const totalManagers = allMembers.filter((m: any) => m.role === "manager" || m.role === "founder").length;
+        if (allMembers.length > 3 && totalManagers <= 2) {
+            throw new Error("Cannot trigger reconfirmation: Removing this manager would violate the 2-manager minimum rule for groups > 3 members.");
+        }
+
+        const managerCount = allMembers.filter((m: any) => (m.role === "manager" || m.role === "founder") && m.userId !== args.targetManagerId).length;
+        const requiredVotes = Math.ceil(managerCount / 2);
+
+        // Get target name for proposal title
+        const targetProfile = await ctx.db.query("users").withIndex("by_userId", (q: any) => q.eq("userId", args.targetManagerId)).first();
+        const targetName = targetProfile?.name || "Unknown";
+
+        const now = Date.now();
+        const proposalId = await ctx.db.insert("governanceProposals", {
+            groupId: args.groupId,
+            proposalCategory: "person",
+            actionType: "reconfirm_manager",
+            proposalTitle: `Reconfirm Manager: ${targetName}`,
+            proposalDescription: `Should ${targetName} continue as manager? Vote APPROVE to remove, REJECT to keep.`,
+            proposerId: user._id,
+            targetUserId: args.targetManagerId,
+            status: "voting",
+            approvalType: "majority",
+            thresholdPercent: 50,
+            requiredVotes,
+            totalEligibleVoters: managerCount,
+            createdAt: now,
+            expiresAt: now + 72 * 60 * 60 * 1000, // 72h voting window
+        });
+
+        // Auto-cast proposer's vote
+        await ctx.db.insert("proposalVotes", {
+            proposalId,
+            voterId: user._id,
+            vote: "approve",
+            castAt: now,
+        });
+
+        await logGovernanceAction(
+            ctx, args.groupId,
+            "reconfirmation_triggered",
+            user._id,
+            `Triggered reconfirmation vote for manager`,
+            args.targetManagerId
+        );
+
+        // Notify the target manager
+        const group = await ctx.db.get(args.groupId);
+        if (group) {
+            await notifyUser(ctx, args.targetManagerId, `A reconfirmation vote has been initiated for your manager role in "${group.name}".`, "governance_alert", { groupId: args.groupId }, args.groupId);
+        }
+
+        return proposalId;
+    },
+});
+
+export const getResolvedProposals = query({
+    args: { groupId: v.id("groups") },
+    handler: async (ctx, args) => {
+        const user = await getAuthUserSafe(ctx);
+        if (!user) return [];
+
+        // Verify membership
+        const membership = await ctx.db
+            .query("groupMembers")
+            .withIndex("by_group_user", (q: any) =>
+                q.eq("groupId", args.groupId).eq("userId", user._id)
+            )
+            .first();
+        if (!membership) return [];
+
+        const proposals = await ctx.db
+            .query("governanceProposals")
+            .withIndex("by_group", (q: any) => q.eq("groupId", args.groupId))
+            .order("desc")
+            .collect();
+
+        // Only resolved ones, limit to 20
+        const resolved = proposals
+            .filter((p: any) => p.status !== "voting")
+            .slice(0, 20);
+
+        // Batch-resolve user names
+        const allUserIds = new Set<string>();
+        for (const p of resolved) {
+            allUserIds.add(p.proposerId);
+            if (p.targetUserId !== "system") allUserIds.add(p.targetUserId);
+        }
+        const userMap = new Map<string, string>();
+        await Promise.all(
+            Array.from(allUserIds).map(async (uid) => {
+                const u = await ctx.db.query("users").withIndex("by_userId", (q: any) => q.eq("userId", uid)).first();
+                userMap.set(uid, u?.name || "Unknown");
+            })
+        );
+
+        return resolved.map((p: any) => ({
+            ...p,
+            proposerName: userMap.get(p.proposerId) || "Unknown",
+            targetName: p.targetUserId === "system" ? "Policy" : (userMap.get(p.targetUserId) || "Unknown"),
+            proposalCategory: p.proposalCategory || "person",
+        }));
     },
 });

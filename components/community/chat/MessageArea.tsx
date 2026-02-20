@@ -504,9 +504,19 @@ export function MessageArea({
 
     const [lastReadTimestamp, setLastReadTimestamp] = useState<number>(0);
     useEffect(() => {
-        const stored = localStorage.getItem(`lastRead-${channelId}`);
-        if (stored) setLastReadTimestamp(parseInt(stored));
-        return () => { localStorage.setItem(`lastRead-${channelId}`, Date.now().toString()); };
+        try {
+            const stored = localStorage.getItem(`lastRead-${channelId}`);
+            if (stored) setLastReadTimestamp(parseInt(stored));
+        } catch (e) {
+            console.warn("localStorage access denied:", e);
+        }
+        return () => {
+            try {
+                localStorage.setItem(`lastRead-${channelId}`, Date.now().toString());
+            } catch (e) {
+                // ignore
+            }
+        };
     }, [channelId]);
 
     const messagesWithSeparators = useMemo(() => {

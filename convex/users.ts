@@ -16,6 +16,7 @@ export const createProfile = mutation({
         name: v.optional(v.string()),
         city: v.object({
             name: v.string(),
+            address: v.optional(v.string()),
             country: v.string(),
             state: v.optional(v.string()),
             lat: v.number(),
@@ -65,6 +66,7 @@ export const updateProfile = mutation({
         city: v.optional(
             v.object({
                 name: v.string(),
+                address: v.optional(v.string()),
                 country: v.string(),
                 state: v.optional(v.string()),
                 lat: v.number(),

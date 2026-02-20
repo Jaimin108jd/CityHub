@@ -53,6 +53,7 @@ import {
 import { GroupChatLayout } from "./chat/GroupChatLayout";
 import { GroupBottomNav } from "./GroupBottomNav";
 import { GroupGovernance } from "./GroupGovernance";
+import { GroupSettings } from "./GroupSettings";
 import {
     Dialog,
     DialogContent,
@@ -103,6 +104,7 @@ const TAB_CONFIG = [
     { id: "members", label: "Members", icon: Users },
     { id: "governance", label: "Governance", icon: Shield },
     { id: "logs", label: "Logs", icon: History },
+    { id: "settings", label: "Settings", icon: Settings },
 ] as const;
 
 type TabId = (typeof TAB_CONFIG)[number]["id"];
@@ -983,6 +985,7 @@ export default function GroupDetailPageContent({ groupId }: GroupDetailPageConte
                         {TAB_CONFIG.map(({ id, label, icon: Icon }) => {
                             const isActive = activeTab === id;
                             const count = tabCounts[id];
+                            if (id === "settings" && !isManager) return null;
                             return (
                                 <button
                                     key={id}
@@ -1180,7 +1183,7 @@ export default function GroupDetailPageContent({ groupId }: GroupDetailPageConte
                                     <Activity className="w-3.5 h-3.5" /> // RECENT ACTIVITY
                                 </h3>
                                 <div className="border border-border divide-y divide-border bg-card rounded-md overflow-hidden shadow-sm">
-                                    {members?.slice(0, 5).map((m: any) => (
+                                    {([...(members || [])]).sort((a: any, b: any) => (b.joinedAt || 0) - (a.joinedAt || 0)).slice(0, 5).map((m: any) => (
                                         <ActivityRow key={m._id} member={m} />
                                     ))}
                                     {(!members || members.length === 0) && (
@@ -1271,7 +1274,7 @@ export default function GroupDetailPageContent({ groupId }: GroupDetailPageConte
                                     </span>
                                 </div>
                                 <div className="divide-y divide-border">
-                                    {members?.slice(0, 4).map((m: any) => (
+                                    {([...(members || [])]).sort((a: any, b: any) => (b.joinedAt || 0) - (a.joinedAt || 0)).slice(0, 4).map((m: any) => (
                                         <div key={m._id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors">
                                             <ProfileAvatar userId={m.userId} name={m.name} avatarUrl={m.avatarUrl} className="w-7 h-7" />
                                             <div className="flex-1 min-w-0">
@@ -1623,6 +1626,9 @@ export default function GroupDetailPageContent({ groupId }: GroupDetailPageConte
 
                 {/* GOVERNANCE */}
                 {activeTab === "governance" && <GroupGovernance groupId={groupId} onJumpToMessage={handleJumpToMessage} />}
+
+                {/* SETTINGS */}
+                {activeTab === "settings" && isManager && <GroupSettings groupId={groupId} />}
 
                 {/* LOGS */}
                 {activeTab === "logs" && (

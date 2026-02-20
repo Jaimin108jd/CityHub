@@ -716,4 +716,90 @@ export const generateUploadUrl = mutation({
     },
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// ─── PUBLIC CITY MEMORY LAYER (Feature 4) ───────────────────────
+// ═══════════════════════════════════════════════════════════════════
 
+export const getCityMemory = query({
+    args: {},
+    handler: async (ctx) => {
+        const now = Date.now();
+
+        // Get all events
+        const events = await ctx.db.query("events").collect();
+
+        // Filter to completed events only
+        const completedEvents = events.filter((e) => {
+            const endTime = e.endTime || e.startTime;
+            return e.status === "completed" || now > endTime;
+        });
+
+        // Aggregate by city
+        const cityMap = new Map<string, {
+            cityName: string;
+            country: string;
+            state?: string;
+            lat: number;
+            lon: number;
+            totalEvents: number;
+            totalAttendees: number;
+            totalPhotos: number;
+            groups: Set<string>;
+            groupNames: Map<string, string>;
+            recentEvents: Array<{ title: string; attendeeCount: number; startTime: number; groupName: string }>;
+        }>();
+
+        for (const event of completedEvents) {
+            const group = await ctx.db.get(event.groupId);
+            if (!group) continue;
+
+            const cityKey = `${group.city.name}__${group.city.country}`;
+
+            if (!cityMap.has(cityKey)) {
+                cityMap.set(cityKey, {
+                    cityName: group.city.name,
+                    country: group.city.country,
+                    state: group.city.state,
+                    lat: group.city.lat,
+                    lon: group.city.lon,
+                    totalEvents: 0,
+                    totalAttendees: 0,
+                    totalPhotos: 0,
+                    groups: new Set(),
+                    groupNames: new Map(),
+                    recentEvents: [],
+                });
+            }
+
+            const city = cityMap.get(cityKey)!;
+            city.totalEvents++;
+            city.totalAttendees += event.attendees.length;
+            city.totalPhotos += (event.photoIds || []).length;
+            city.groups.add(event.groupId);
+            city.groupNames.set(event.groupId, group.name);
+            city.recentEvents.push({
+                title: event.title,
+                attendeeCount: event.attendees.length,
+                startTime: event.startTime,
+                groupName: group.name,
+            });
+        }
+
+        // Convert to array and sort recent events
+        return Array.from(cityMap.values()).map((city) => ({
+            cityName: city.cityName,
+            country: city.country,
+            state: city.state,
+            lat: city.lat,
+            lon: city.lon,
+            totalEvents: city.totalEvents,
+            totalAttendees: city.totalAttendees,
+            totalPhotos: city.totalPhotos,
+            groupCount: city.groups.size,
+            groupNames: Array.from(city.groupNames.values()),
+            recentEvents: city.recentEvents
+                .sort((a, b) => b.startTime - a.startTime)
+                .slice(0, 5),
+        }));
+    },
+});
