@@ -1,0 +1,4 @@
+{
+  "/(main)/community/[groupId]/page": "app/(main)/community/[groupId]/page.js",
+  "/api/auth/[...all]/route": "app/api/auth/[...all]/route.js"
+}

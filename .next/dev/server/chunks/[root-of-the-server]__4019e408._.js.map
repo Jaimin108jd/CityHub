@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 40, "column": 0}, "map": {"version":3,"sources":["file:///home/udit/hack/City-Hub/lib/auth-server.ts"],"sourcesContent":["import { convexBetterAuthNextJs } from \"@convex-dev/better-auth/nextjs\";\n\nexport const {\n    handler,\n    preloadAuthQuery,\n    isAuthenticated,\n    getToken,\n    fetchAuthQuery,\n    fetchAuthMutation,\n    fetchAuthAction,\n} = convexBetterAuthNextJs({\n    convexUrl: process.env.NEXT_PUBLIC_CONVEX_URL!,\n    convexSiteUrl: process.env.NEXT_PUBLIC_CONVEX_SITE_URL!,\n\n});"],"names":[],"mappings":";;;;;;;;;;;;;;;;AAAA;;AAEO,MAAM,EACT,OAAO,EACP,gBAAgB,EAChB,eAAe,EACf,QAAQ,EACR,cAAc,EACd,iBAAiB,EACjB,eAAe,EAClB,GAAG,IAAA,wMAAsB,EAAC;IACvB,SAAS;IACT,aAAa;AAEjB"}},
+    {"offset": {"line": 66, "column": 0}, "map": {"version":3,"sources":["file:///home/udit/hack/City-Hub/app/api/auth/%5B...all%5D/route.ts"],"sourcesContent":["import { handler } from \"@/lib/auth-server\";\n\nexport const { GET, POST } = handler;"],"names":[],"mappings":";;;;;;AAAA;;AAEO,MAAM,EAAE,GAAG,EAAE,IAAI,EAAE,GAAG,kIAAO"}}]
+}

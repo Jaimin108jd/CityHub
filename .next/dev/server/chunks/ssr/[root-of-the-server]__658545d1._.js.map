@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 10, "column": 0}, "map": {"version":3,"sources":["file:///home/udit/hack/City-Hub/app/%28main%29/community/page.tsx"],"sourcesContent":["\"use cache\";\n\nimport CommunityPageContent from \"@/components/community/CommunityPage\";\n\nexport default async function Page() {\n    return <CommunityPageContent />;\n}\n"],"names":[],"mappings":";;;;;;;;;;;;;;;;;;;;AAIe,MAAA,6BAAA,eAAe;IAC1B,qBAAO,8OAAC;;;;;AACZ;IAFe,2OAAA,SAAe;WAAf;;AAAA"}},
+    {"offset": {"line": 49, "column": 0}, "map": {"version":3,"sources":["file:///home/udit/hack/City-Hub/.next-internal/server/app/%28main%29/community/page/actions.js%20%28server%20actions%20loader%29"],"sourcesContent":["export {$$RSC_SERVER_CACHE_0 as '80c6836c1134aea082c0f3683fe8e7484806624335'} from 'ACTIONS_MODULE0'\n"],"names":[],"mappings":";AAAA"}}]
+}
